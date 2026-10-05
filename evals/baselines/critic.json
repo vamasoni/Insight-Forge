@@ -1,0 +1,48 @@
+{
+  "mode": "deterministic",
+  "n_clean": 43,
+  "n_corrupted": 216,
+  "recall": 99.54,
+  "false_positive_rate": 0.0,
+  "by_type": {
+    "clean": {
+      "n": 43,
+      "flag_rate": 0.0
+    },
+    "number_shift": {
+      "n": 42,
+      "flag_rate": 100.0
+    },
+    "wrong_citation": {
+      "n": 43,
+      "flag_rate": 100.0
+    },
+    "missing_citation": {
+      "n": 43,
+      "flag_rate": 100.0
+    },
+    "causal": {
+      "n": 43,
+      "flag_rate": 100.0
+    },
+    "false_significance": {
+      "n": 43,
+      "flag_rate": 100.0
+    },
+    "unit_confusion": {
+      "n": 2,
+      "flag_rate": 50.0
+    }
+  },
+  "misses": [
+    {
+      "type": "unit_confusion",
+      "qid": "OL50",
+      "text": "The result of 'What is the correlation between product weight and freight value across order items' is 0.0%.",
+      "status": "supported",
+      "flagged": false,
+      "notes": []
+    }
+  ],
+  "false_positives": []
+}

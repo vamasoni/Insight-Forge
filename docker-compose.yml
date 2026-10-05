@@ -1,0 +1,18 @@
+# docker compose up --build   ->  API on :8000, UI on :8501
+# The database is mounted read-only. The API needs outbound network for the LLM API; if you serve a
+# local model (vLLM/Ollama) you can put both on an internal-only network for full isolation.
+services:
+  api:
+    build: .
+    env_file: .env
+    volumes: ["./data:/app/data:ro", "./runs:/app/runs"]
+    ports: ["8000:8000"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    mem_limit: 4g
+  ui:
+    build: .
+    env_file: .env
+    command: ["streamlit", "run", "app/streamlit_app.py", "--server.address=0.0.0.0"]
+    volumes: ["./data:/app/data:ro", "./runs:/app/runs"]
+    ports: ["8501:8501"]

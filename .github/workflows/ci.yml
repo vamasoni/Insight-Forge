@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -e ".[dev,mcp]"
+      - name: Unit + contract tests (no API key needed)
+        run: pytest -q
+      - name: Build synthetic Olist
+        run: |
+          python scripts/make_synthetic_olist.py --out data/olist_csv_synth --orders 8000 --seed 7
+          python scripts/load_olist.py --csv-dir data/olist_csv_synth --out data/olist_synth.duckdb
+      - name: Critic eval (deterministic layer)
+        run: python -m evals.critic_eval --db data/olist_synth.duckdb --out results
+      - name: Gate critic
+        run: >
+          python -m evals.regression --current results/critic_summary.json
+          --baseline evals/baselines/critic.json --metric recall false_positive_rate
+          --lower-is-better false_positive_rate --max-drop 2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: critic-results, path: results/}
+
+  llm-eval:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openai' }}
+      LLM_MODEL: ${{ vars.LLM_MODEL || 'gpt-4o-mini' }}
+      LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+      LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+      LANGFUSE_HOST: ${{ vars.LANGFUSE_HOST }}
+    steps:
+      - name: Skip without an API key (e.g. PRs from forks)
+        id: key
+        run: echo "ok=${{ env.LLM_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.key.outputs.ok == 'true'
+        with: {python-version: "3.11", cache: pip}
+      - if: steps.key.outputs.ok == 'true'
+        run: pip install -e ".[dev,tracing]"
+      - uses: actions/cache@v4
+        if: steps.key.outputs.ok == 'true'
+        with: {path: data/bird, key: bird-dev-v1}
+      - if: steps.key.outputs.ok == 'true'
+        run: test -f data/bird/dev/dev.json || python scripts/download_bird.py
+      - name: BIRD subset (fixed stratified sample)
+        if: steps.key.outputs.ok == 'true'
+        run: python -m evals.bird.run_bird --limit 150 --seed 13 --configs retrieval+repair --workers 6
+      - name: Olist agent eval (synthetic data, gold answers computed from gold SQL)
+        if: steps.key.outputs.ok == 'true'
+        run: |
+          python scripts/make_synthetic_olist.py --out data/olist_csv_synth --orders 8000 --seed 7
+          python scripts/load_olist.py --csv-dir data/olist_csv_synth --out data/olist_synth.duckdb
+          python -m evals.olist.run_olist --mode agent --db data/olist_synth.duckdb --limit 20
+      - name: Gate BIRD
+        if: steps.key.outputs.ok == 'true'
+        run: >
+          python -m evals.regression --current results/bird_retrieval_repair_summary.json
+          --baseline evals/baselines/bird_retrieval_repair.json --metric ex valid_sql_rate --max-drop 3
+      - name: Gate Olist agent
+        if: steps.key.outputs.ok == 'true'
+        run: >
+          python -m evals.regression --current results/olist_agent_summary.json
+          --baseline evals/baselines/olist_agent.json
+          --metric answer_in_evidence schema_valid_rate tool_call_correctness --max-drop 5
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.key.outputs.ok == 'true'
+        with: {name: llm-eval-results, path: results/}
